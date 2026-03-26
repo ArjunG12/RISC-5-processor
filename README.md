@@ -38,10 +38,9 @@ This project implements a 5-stage pipelined RISC-V processor targeting the RV32I
 ---
 
 ## Architecture
-<img width="5284" height="3644" alt="image" src="https://github.com/user-attachments/assets/ef18e8e7-50fc-4ea4-bea4-71503eb7211d" />
+<img width="5284" height="3644" alt="image" src="https://github.com/user-attachments/assets/4212392c-a290-4240-87c8-76bdb09d8a9a" />
 
-
-
+The datapath diagram is included in `docs/riscv_datapath.pdf`.
 
 ---
 
@@ -110,20 +109,20 @@ The `SignExtend` module correctly handles all five RISC-V immediate formats: I, 
 | Module | File | Description |
 |--------|------|-------------|
 | `top` | `top.sv` | Top-level integration; all pipeline stages wired |
-| `PC` | `top.sv` | Program counter register with synchronous load enable |
-| `instruction_memory` | `top.sv` | 256-entry instruction ROM; initialised via `$readmemh` |
-| `IF_ID_Reg` | `top.sv` | 64-bit pipeline register with enable and flush |
-| `control_unit` | `top.sv` | Opcode → 8-bit control word decoder |
-| `Register_file` | `top.sv` | 32×32 register file; combinational read with WB forwarding |
-| `SignExtend` | `top.sv` | Full RV32I immediate decoder (I/S/B/U/J) |
-| `ID_EX_Reg` | `top.sv` | 161-bit pipeline register with flush |
-| `ALU` | `top.sv` | 32-bit ALU; all RV32I ops via `alu_pkg` typedef |
-| `ALU_control` | `top.sv` | func7/func3/ALUOp → 4-bit ALU control decoder |
-| `EX_MEM_Reg` | `top.sv` | 107-bit pipeline register with flush |
-| `data_memory` | `top.sv` | 1024-entry data RAM; synchronous read and write |
-| `MEM_WB_Reg` | `top.sv` | 71-bit pipeline register |
-| `hazard_unit` | `top.sv` | Load-use hazard detection; drives PCWrite, IF_ID_Write, control_flush |
-| `forwarding_unit` | `top.sv` | EX/MEM and MEM/WB forwarding logic for ALU operands |
+| `PC` | `PC.sv` | Program counter register with synchronous load enable |
+| `instruction_memory` | `instruction_memory.sv` | 256-entry instruction ROM; initialised via `$readmemh` |
+| `IF_ID_Reg` | `IF_ID_Reg.sv` | 64-bit pipeline register with enable and flush |
+| `control_unit` | `control_unit.sv` | Opcode → 8-bit control word decoder |
+| `Register_file` | `Register_file.sv` | 32×32 register file; combinational read with WB forwarding |
+| `SignExtend` | `SignExtend.sv` | Full RV32I immediate decoder (I/S/B/U/J) |
+| `ID_EX_Reg` | `ID_EX_Reg.sv` | 161-bit pipeline register with flush |
+| `ALU` | `ALU.sv` | 32-bit ALU; all RV32I ops via `alu_pkg` typedef |
+| `ALU_control` | `ALU_control.sv` | func7/func3/ALUOp → 4-bit ALU control decoder |
+| `EX_MEM_Reg` | `EX_MEM_Reg.sv` | 107-bit pipeline register with flush |
+| `data_memory` | `data_memory.sv` | 1024-entry data RAM; synchronous read and write |
+| `MEM_WB_Reg` | `MEM_WB_Reg.sv` | 71-bit pipeline register |
+| `hazard_unit` | `hazard_unit.sv` | Load-use hazard detection; drives PCWrite, IF_ID_Write, control_flush |
+| `forwarding_unit` | `forwarding_unit.sv` | EX/MEM and MEM/WB forwarding logic for ALU operands |
 | `alu_pkg` | `alu_pkg.sv` | Package defining `alu_op_t` typedef and all ALU/ALUOp constants |
 
 ---
@@ -133,15 +132,27 @@ The `SignExtend` module correctly handles all five RISC-V immediate formats: I, 
 ```
 .
 ├── src/
-│   ├── top.sv               # Top-level and all pipeline modules
-│   └── alu_pkg.sv           # ALU control package
+│   ├── top.sv                  # Top-level integration
+│   ├── alu_pkg.sv              # ALU control package (import first)
+│   ├── PC.sv                   # Program counter
+│   ├── instruction_memory.sv   # Instruction ROM
+│   ├── IF_ID_Reg.sv            # IF/ID pipeline register
+│   ├── control_unit.sv         # Main control decoder
+│   ├── Register_file.sv        # 32×32 register file
+│   ├── SignExtend.sv           # Immediate sign-extension
+│   ├── ID_EX_Reg.sv            # ID/EX pipeline register
+│   ├── ALU.sv                  # 32-bit ALU
+│   ├── ALU_control.sv          # ALU control decoder
+│   ├── EX_MEM_Reg.sv           # EX/MEM pipeline register
+│   ├── data_memory.sv          # Data RAM
+│   ├── MEM_WB_Reg.sv           # MEM/WB pipeline register
+│   ├── hazard_unit.sv          # Load-use hazard detection
+│   └── forwarding_unit.sv      # Data forwarding logic
 ├── sim/
-│   ├── tb_top.sv            # Testbench
-│   └── program.hex          # Assembled RV32I test program (hex)
+│   ├── tb_top.sv               # Testbench
+│   └── program.hex             # Assembled RV32I test program (hex)
 ├── docs/
-│   └── riscv_datapath.pdf   # Pipeline datapath and control diagram
-├── constraints/
-│   └── top.xdc              # Vivado pin and timing constraints
+│   └── riscv_datapath.pdf      # Pipeline datapath and control diagram
 └── README.md
 ```
 
@@ -158,7 +169,7 @@ The `SignExtend` module correctly handles all five RISC-V immediate formats: I, 
 ### Cloning
 
 ```bash
-git clone https://github.com/ArjunG12/riscv-5stage-pipeline.git
+git clone https://github.com/<your-username>/riscv-5stage-pipeline.git
 cd riscv-5stage-pipeline
 ```
 
@@ -187,7 +198,24 @@ The instruction memory initialises from `program.hex` via `$readmemh`. Update th
 ### Icarus Verilog
 
 ```bash
-iverilog -g2012 -o sim.out src/alu_pkg.sv src/top.sv sim/tb_top.sv
+iverilog -g2012 -o sim.out \
+  src/alu_pkg.sv \
+  src/PC.sv \
+  src/instruction_memory.sv \
+  src/IF_ID_Reg.sv \
+  src/control_unit.sv \
+  src/Register_file.sv \
+  src/SignExtend.sv \
+  src/ID_EX_Reg.sv \
+  src/ALU.sv \
+  src/ALU_control.sv \
+  src/EX_MEM_Reg.sv \
+  src/data_memory.sv \
+  src/MEM_WB_Reg.sv \
+  src/hazard_unit.sv \
+  src/forwarding_unit.sv \
+  src/top.sv \
+  sim/tb_top.sv
 vvp sim.out
 ```
 
@@ -195,7 +223,23 @@ vvp sim.out
 
 ```tcl
 vlib work
-vlog -sv src/alu_pkg.sv src/top.sv sim/tb_top.sv
+vlog -sv src/alu_pkg.sv \
+         src/PC.sv \
+         src/instruction_memory.sv \
+         src/IF_ID_Reg.sv \
+         src/control_unit.sv \
+         src/Register_file.sv \
+         src/SignExtend.sv \
+         src/ID_EX_Reg.sv \
+         src/ALU.sv \
+         src/ALU_control.sv \
+         src/EX_MEM_Reg.sv \
+         src/data_memory.sv \
+         src/MEM_WB_Reg.sv \
+         src/hazard_unit.sv \
+         src/forwarding_unit.sv \
+         src/top.sv \
+         sim/tb_top.sv
 vsim tb_top
 run -all
 ```
