@@ -152,6 +152,7 @@ The `SignExtend` module correctly handles all five RISC-V immediate formats: I, 
 ├── sim/
 │   ├── tb_top.sv               # Testbench
 │   └── program.hex             # Assembled RV32I test program (hex)
+│   └── tb.wcfg                 # Output waveform containing registers and data memory
 ├── docs/
 │   └── riscv_datapath.pdf      # Pipeline datapath and control diagram
 └── README.md
