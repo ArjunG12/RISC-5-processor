@@ -16,6 +16,7 @@ A fully functional 32-bit RISC-V (RV32I subset) processor implemented in SystemV
 - [Getting Started](#getting-started)
 - [Running Simulation](#running-simulation)
 - [FPGA Synthesis (Xilinx Vivado)](#fpga-synthesis-xilinx-vivado)
+- [Simulation & Verification](#simulation--verification)
 - [Known Limitations](#known-limitations)
 - [Design Decisions](#design-decisions)
 
@@ -256,6 +257,48 @@ Both memories are coded for BRAM inference:
 After synthesis, confirm in the Utilization report that both memories appear under **Block RAM Tile** and not under **Slice LUTs**. If they appear as LUT RAM, verify no combinational read paths remain.
 
 The `(* mark_debug = "true" *)` attributes on `pc_out`, `write_reg`, `write_reg_data`, and `alu_result_ex` enable direct ILA probing in Vivado without modifying the netlist.
+
+---
+
+## Simulation & Verification
+
+### Test 5 — Array Sum Loop ✅
+
+The processor has been verified against **Test 5**, a comprehensive integration test that exercises the following features simultaneously:
+
+- `SW` / `LW` — word-granularity store and load
+- **Load-use hazard stalls** — the `LW → ADD` dependency triggers the hazard unit every loop iteration, inserting a 1-cycle bubble and verifying that `PCWrite` and `IF_ID_Write` are correctly de-asserted
+- **Data forwarding** — `ADD x10, x10, x8` uses the MEM/WB forwarding path after the stall resolves
+- **Taken BEQ branches** — the unconditional back-branch (`beq x0, x0, loop5`) flushes three pipeline stages on every iteration, exercising the full branch-flush path
+- `ADDI` with positive and zero immediates for counter / accumulator initialisation
+
+**Program summary:**
+
+```asm
+# Store array {10, 20, 30, 40, 50} into mem[0..16]
+addi x1,x0,10  ;  addi x2,x0,20  ;  addi x3,x0,30
+addi x4,x0,40  ;  addi x5,x0,50
+sw x1,0(x0) ; sw x2,4(x0) ; sw x3,8(x0) ; sw x4,12(x0) ; sw x5,16(x0)
+
+# Loop: accumulate sum in x10
+addi x6,x0,0   # base pointer
+addi x7,x0,20  # end pointer
+addi x10,x0,0  # accumulator
+loop5:
+    beq  x6, x7, done5   # exit when pointer reaches end
+    lw   x8, 0(x6)       # load-use hazard: 1 stall inserted
+    add  x10, x10, x8    # accumulate
+    addi x6, x6, 4       # advance pointer
+    beq  x0, x0, loop5   # unconditional back-branch (3-cycle flush)
+done5:
+    sw  x10, 24(x0)      # store result
+    lw  x11, 24(x0)      # reload (load-use stall)
+    addi x12, x11, 0     # copy
+```
+
+**Result:** `x10 = 10 + 20 + 30 + 40 + 50 = 150` ✅
+
+The final value of `150` was confirmed in simulation via both the register file (`x10 = 0x00000096`) and the memory writeback at address `24` (`mem[24] = 0x00000096`).
 
 ---
 
