@@ -297,6 +297,7 @@ done5:
 ```
 
 **Result:** `x10 = 10 + 20 + 30 + 40 + 50 = 150` ✅
+<img width="1483" height="316" alt="image" src="https://github.com/user-attachments/assets/f5fa8176-27ff-4bba-a9c3-dacf3e7f1d43" />
 
 The final value of `150` was confirmed in simulation via both the register file (`x10 = 0x00000096`) and the memory writeback at address `24` (`mem[24] = 0x00000096`).
 
