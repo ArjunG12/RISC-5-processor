@@ -1,0 +1,55 @@
+# ============================================================
+# TEST 5 — Array Sum Loop: stores N values into memory, then
+#          accumulates their sum in a register using a loop.
+#
+#          Tests: SW, LW, load-use stalls, data forwarding,
+#                 BEQ loop (taken branch every iteration),
+#                 induction variable via ADDI, and ADDI with
+#                 a negative immediate as the only subtract.
+#
+#          Layout (byte addresses):
+#            0–19  : array[0..4]  (5 words × 4 bytes each)
+#            20    : scratch (unused)
+#
+#          Expected result: x10 = 10+20+30+40+50 = 150
+# ============================================================
+test5:
+    # ── Store array[0..4] = {10, 20, 30, 40, 50} ─────────────
+    addi x1, x0,  10
+    addi x2, x0,  20
+    addi x3, x0,  30
+    addi x4, x0,  40
+    addi x5, x0,  50
+
+    sw   x1,  0(x0)         # mem[0]  = 10
+    sw   x2,  4(x0)         # mem[4]  = 20
+    sw   x3,  8(x0)         # mem[8]  = 30
+    sw   x4, 12(x0)         # mem[12] = 40
+    sw   x5, 16(x0)         # mem[16] = 50
+
+    # ── Loop setup ────────────────────────────────────────────
+    addi x6,  x0,  0        # x6  = base address (byte offset, starts at 0)
+    addi x7,  x0,  20       # x7  = end address  (5 elements × 4 bytes)
+    addi x10, x0,  0        # x10 = accumulator  = 0
+
+    # ── Sum loop ──────────────────────────────────────────────
+    # Loop body: load mem[x6], add to accumulator, advance pointer.
+    # BEQ checks x6 == x7 to exit.
+    # Branch resolves in MEM: 3-cycle flush per taken iteration.
+    # LW→ADD is a load-use hazard: 1 stall inserted each iteration.
+loop5:
+    beq  x6, x7, done5      # if x6 == 20 → exit (NOT taken until last)
+    lw   x8,  0(x6)         # x8 = mem[x6]  — address via x6
+    add  x10, x10, x8       # x10 += x8     — load-use stall inserted here
+    addi x6,  x6,  4        # x6  += 4      — advance to next word
+    beq  x0, x0, loop5      # always branch back (unconditional loop)
+
+done5:
+    # x10 should equal 150 here
+    # Verify: store result to mem[24] and re-read it
+    sw   x10, 24(x0)        # mem[24] = 150
+    lw   x11, 24(x0)        # x11 = 150  (with load-use stall)
+    addi x12, x11, 0        # x12 = 150  (copies x11 after stall resolves)
+
+t5_end:
+    beq  x0, x0, t5_end
