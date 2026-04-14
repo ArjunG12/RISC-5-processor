@@ -21,7 +21,7 @@
 
 
 module EX_MEM_Reg#(
-    parameter EX_MEM_size=107   // You can even pass data types!
+    parameter EX_MEM_size=110   // You can even pass data types!
 )(
     input clk,input rst,flush,input [EX_MEM_size-1:0] inp, output logic [EX_MEM_size-1:0] out 
     );
