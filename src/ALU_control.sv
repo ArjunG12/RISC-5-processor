@@ -75,7 +75,14 @@ module ALU_control (
 
             ALUOP_ADD: ALU_control = ALU_ADD;   // load / store addr calc
 
-            ALUOP_SUB: ALU_control = ALU_SUB;   // BEQ: a-b, check zero flag
+            ALUOP_SUB: begin                          // branch instructions
+                case (func3)
+                    3'b000, 3'b001: ALU_control = ALU_SUB;   // BEQ, BNE  → check zero
+                    3'b100, 3'b101: ALU_control = ALU_SLT;   // BLT, BGE  → signed compare
+                    3'b110, 3'b111: ALU_control = ALU_SLTU;  // BLTU, BGEU → unsigned compare
+                    default:        ALU_control = ALU_SUB;
+                endcase
+            end
 
             ALUOP_RTYPE: begin
                 // For I-type ALU (opcode 0010011) the top-level zeroes func7,
