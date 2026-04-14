@@ -25,17 +25,12 @@ module instruction_memory (
     output logic [31:0] RD
 );
 
-    logic [7:0] instr_mem [1023:0]; 
+    logic [31:0] instr_mem [1023:0]; 
 
     initial begin
-        for (int i = 0; i < 256; i++) begin
-            instr_mem[i] = i * 15; 
+            $readmemh("C:/Users/goela/risc_5/risc_5.sim/bge_test.hex", instr_mem); // ← replaces the dummy loop
         end
-        
-    end
     
-    assign RD = { instr_mem[{PC[9:2],2'b11}],   // byte 3 → MSB
-                  instr_mem[{PC[9:2],2'b10}],
-                  instr_mem[{PC[9:2],2'b01}],
-                  instr_mem[{PC[9:2],2'b00}] };  // byte 0 → LSB
+    
+    assign RD = instr_mem[PC[9:2]];  // byte 0 → LSB
 endmodule
