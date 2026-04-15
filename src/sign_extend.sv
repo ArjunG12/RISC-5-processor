@@ -32,7 +32,8 @@ module SignExtend(
             7'b0010011,          // I-type (ALU immediate)
             7'b0000011:          // I-type (Load)
                 out = {{20{instr[31]}}, instr[31:20]};
-
+            7'b1100111:          // ← ADD THIS: JALR (I-type)
+                out = {{20{instr[31]}}, instr[31:20]};
             7'b0100011:          // S-type (Store)
                 out = {{20{instr[31]}}, instr[31:25], instr[11:7]};
 
