@@ -25,7 +25,7 @@ module top(
     );
             parameter IF_ID_size=64,ID_EX_size=166, EX_MEM_size= 142, MEM_WB_size= 104;
     //control signals
-    logic PCSource,branch_flush, PCWrite,ALUSrc,ALUOp1,ALUOp0,Branch,MemRead,MemWrite,RegWrite,MemToReg,IF_ID_Write,control_flush;
+    logic PCSource,branch_flush, PCWrite,ALUSrc,ALUOp1,ALUOp0,Branch,MemRead,MemWrite,RegWrite,IF_ID_Write,control_flush;
     
     //ALL declerations
     // ─── Global / Cross-stage ────────────────────────────────────────────
@@ -283,7 +283,12 @@ module top(
         .mem_read(MemRead),
         .read_data(Read_data_mem)
     );
-    assign MEM_RD=alu_result_mem; 
+    always_comb begin
+        case (control_sig_mem[4:3])   // wb_sel field in EX/MEM
+            2'b10:   MEM_RD = pc_plus4_mem;    // JAL / JALR link value
+            default: MEM_RD = alu_result_mem;  // ALU result (R/I, LUI, AUIPC)
+        endcase
+    end
      
     //MEM_WB_reg
     assign control_sig_mem_wb=control_sig_mem[5:3];
@@ -300,7 +305,6 @@ module top(
     
     //WB stage
     assign RegWrite= control_sig_wb[2];
-    assign MemToReg= control_sig_wb[0];
     always_comb begin
         case (control_sig_wb[1:0])                 // wb_sel
             2'b01:   write_reg_data = Read_data_wb;  // LW
