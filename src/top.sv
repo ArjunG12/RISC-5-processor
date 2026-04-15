@@ -1,7 +1,29 @@
+`timescale 1ns / 1ps
+//////////////////////////////////////////////////////////////////////////////////
+// Company: 
+// Engineer: 
+// 
+// Create Date: 14.03.2026 04:37:56
+// Design Name: 
+// Module Name: top
+// Project Name: 
+// Target Devices: 
+// Tool Versions: 
+// Description: 
+// 
+// Dependencies: 
+// 
+// Revision:
+// Revision 0.01 - File Created
+// Additional Comments:
+// 
+//////////////////////////////////////////////////////////////////////////////////
+
+
 module top(
     input clk,rst,output logic [31:0] debug_pc       
     );
-            parameter IF_ID_size=64,ID_EX_size=166, EX_MEM_size= 140, MEM_WB_size= 104;
+            parameter IF_ID_size=64,ID_EX_size=166, EX_MEM_size= 142, MEM_WB_size= 104;
     //control signals
     logic PCSource,branch_flush, PCWrite,ALUSrc,ALUOp1,ALUOp0,Branch,MemRead,MemWrite,RegWrite,MemToReg,IF_ID_Write,control_flush;
     
@@ -72,7 +94,7 @@ module top(
         logic        id_ex_flush_combined;
     
         // ─── EX/MEM Pipeline Register outputs ────────────────────────────────
-        logic [4:0]  control_sig_mem;     // {RegWrite, MemToReg, Branch, MemRead, MemWrite}
+        logic [5:0]  control_sig_mem;     // {RegWrite, MemToReg, Branch, MemRead, MemWrite}
         logic [31:0] pc_branch_mem;       // branch target passed to PC mux
         logic        alu_zero_mem;        // zero flag for branch decision
         logic [31:0] alu_result_mem;      // ALU result (also memory address)
@@ -82,11 +104,9 @@ module top(
 
         // ─── MEM Stage ───────────────────────────────────────────────────────
         logic [31:0] Read_data_mem;       // data memory read output
-        logic [1:0]  control_sig_mem_wb;  // {RegWrite, MemToReg} passed to MEM/WB
         logic [2:0]  func3_mem;
         logic branch_taken;
         // ─── MEM/WB Pipeline Register outputs ────────────────────────────────
-        logic [1:0]  control_sig_wb;      // {RegWrite, MemToReg}
         logic [31:0] Read_data_wb;        // memory read data
         logic [31:0] alu_result_wb;       // ALU result
         logic [4:0]  write_reg_final_wb;  // destination register → write_reg
@@ -118,7 +138,8 @@ module top(
     );
     
     //IF Stage
-    
+    assign pc_next = pc_out + 32'd4;
+
     logic [31:0] pc_mux_out;
     always_comb begin
         if      (PCSource)   pc_mux_out = pc_branch_mem;   // taken branch (MEM)
@@ -167,7 +188,8 @@ module top(
     assign func7_id =(instr_id[6:0] == 7'b0010011 && instr_id[14:12] != 3'b101 && instr_id[14:12] != 3'b001)? 7'b0 : instr_id[31:25];
     assign func3_id=instr_id[14:12];
     assign write_reg_id=instr_id[11:7];
-    assign control_sig_to_idex = control_flush ? 8'b0 : control_sig_id;
+    assign control_sig_to_idex = control_flush ? 13'b0 : control_sig_id;
+
      //ID_EX_REG
      ID_EX_Reg #(.ID_EX_size(ID_EX_size)) id_ex_reg(
         .clk,
@@ -227,10 +249,10 @@ module top(
     EX_MEM_Reg #(.EX_MEM_size(EX_MEM_size)) ex_mem_reg(
         .clk, .rst,
         .flush(branch_flush),
-        .inp({control_ex_to_mem, pc_plus4_ex, pc_branch_ex,
-              zero_ex, alu_result_ex, fwd_RD2, write_reg_ex}),
+        .inp({control_sig_ex_mem, pc_plus4_ex, pc_branch_ex,
+              func3_ex, alu_result_ex, fwd_RD2, write_reg_ex}),
         .out({control_sig_mem, pc_plus4_mem, pc_branch_mem,
-              alu_zero_mem, alu_result_mem, RD2_mem, write_reg_final_mem})
+              func3_mem, alu_result_mem, RD2_mem, write_reg_final_mem})
     );
     
     //MEM stage
