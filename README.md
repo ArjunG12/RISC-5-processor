@@ -306,11 +306,7 @@ The final value of `150` was confirmed in simulation via both the register file 
 
 ## Known Limitations
 
-The following instructions are **not yet implemented** and will execute as NOPs (all control signals zero):
-
-- `JAL` / `JALR` — requires a third PC mux input and a link-register write path
-- `LUI` / `AUIPC` — requires bypassing the ALU or adding a dedicated upper-immediate adder
-- `BNE`, `BLT`, `BGE`, `BLTU`, `BGEU` — only `BEQ` is currently supported; other branch types need an expanded branch condition unit
+The following instructions are **not yet implemented** and will execute as NOPs (all control signals zero)
 - Byte and halfword memory operations (`LB`, `LH`, `LBU`, `LHU`, `SB`, `SH`) — memory currently operates at word (32-bit) granularity only
 
 Branch resolution occurs in the **MEM stage**, resulting in a 3-cycle penalty on every taken branch. Moving resolution to the EX stage would reduce this to 1 cycle and is a planned improvement.
