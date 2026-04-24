@@ -63,7 +63,7 @@ module top(
     
         assign if_id_rs1   = instr_id[19:15];
         assign if_id_rs2   = instr_id[24:20];
-        assign id_ex_MemRead = control_sig_ex[4];  // bit[4] = MemRead
+        assign id_ex_MemRead = control_sig_ex[6];  // bit[4] = MemRead
         assign id_ex_rd    = write_reg_ex;
     
         // ─── ID/EX Pipeline Register outputs ─────────────────────────────────
@@ -109,6 +109,7 @@ module top(
         logic branch_taken;
         logic [3:0]  byte_en;
         logic [31:0] dm_write_data;
+        logic [31:0] mem_stage_load_result;
         // ─── MEM/WB Pipeline Register outputs ────────────────────────────────
         logic [31:0] Read_data_wb;        // memory read data
         logic [31:0] alu_result_wb;       // ALU result
@@ -322,10 +323,47 @@ module top(
         .read_data  (Read_data_mem)
     );
     always_comb begin
-        case (control_sig_mem[4:3])   // wb_sel field in EX/MEM
-            2'b01:   MEM_RD = Read_data_mem;   // LW: return loaded data
-            2'b10:   MEM_RD = pc_plus4_mem;    // JAL / JALR link value
-            default: MEM_RD = alu_result_mem;  // ALU result (R/I, LUI, AUIPC)
+        mem_stage_load_result = Read_data_mem; // default: LW / fallback
+    
+        case (func3_mem)
+            3'b000: // LB - signed byte
+                case (alu_result_mem[1:0])
+                    2'b00: mem_stage_load_result = {{24{Read_data_mem[ 7]}}, Read_data_mem[ 7: 0]};
+                    2'b01: mem_stage_load_result = {{24{Read_data_mem[15]}}, Read_data_mem[15: 8]};
+                    2'b10: mem_stage_load_result = {{24{Read_data_mem[23]}}, Read_data_mem[23:16]};
+                    2'b11: mem_stage_load_result = {{24{Read_data_mem[31]}}, Read_data_mem[31:24]};
+                    default: mem_stage_load_result = Read_data_mem;
+                endcase
+    
+            3'b001: // LH - signed halfword
+                mem_stage_load_result = alu_result_mem[1]
+                    ? {{16{Read_data_mem[31]}}, Read_data_mem[31:16]}
+                    : {{16{Read_data_mem[15]}}, Read_data_mem[15: 0]};
+    
+            3'b010: mem_stage_load_result = Read_data_mem; // LW
+    
+            3'b100: // LBU - unsigned byte
+                case (alu_result_mem[1:0])
+                    2'b00: mem_stage_load_result = {24'b0, Read_data_mem[ 7: 0]};
+                    2'b01: mem_stage_load_result = {24'b0, Read_data_mem[15: 8]};
+                    2'b10: mem_stage_load_result = {24'b0, Read_data_mem[23:16]};
+                    2'b11: mem_stage_load_result = {24'b0, Read_data_mem[31:24]};
+                    default: mem_stage_load_result = Read_data_mem;
+                endcase
+    
+            3'b101: // LHU - unsigned halfword
+                mem_stage_load_result = alu_result_mem[1]
+                    ? {16'b0, Read_data_mem[31:16]}
+                    : {16'b0, Read_data_mem[15: 0]};
+    
+            default: mem_stage_load_result = Read_data_mem;
+        endcase
+    end
+    always_comb begin
+        case (control_sig_mem[4:3])   // wb_sel
+            2'b01:   MEM_RD = mem_stage_load_result; // ← was Read_data_mem (wrong for sub-word)
+            2'b10:   MEM_RD = pc_plus4_mem;
+            default: MEM_RD = alu_result_mem;
         endcase
     end
      
