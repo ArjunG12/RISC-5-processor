@@ -23,7 +23,8 @@
 module top(
     input clk,rst,output logic [31:0] debug_pc       
     );
-            parameter IF_ID_size=64,ID_EX_size=166, EX_MEM_size= 142, MEM_WB_size= 104;
+            parameter IF_ID_size=64, ID_EX_size=166, EX_MEM_size=142, MEM_WB_size=107;
+
     //control signals
     logic PCSource,branch_flush, PCWrite,ALUSrc,ALUOp1,ALUOp0,Branch,MemRead,MemWrite,RegWrite,IF_ID_Write,control_flush;
     
@@ -106,6 +107,8 @@ module top(
         logic [31:0] Read_data_mem;       // data memory read output
         logic [2:0]  func3_mem;
         logic branch_taken;
+        logic [3:0]  byte_en;
+        logic [31:0] dm_write_data;
         // ─── MEM/WB Pipeline Register outputs ────────────────────────────────
         logic [31:0] Read_data_wb;        // memory read data
         logic [31:0] alu_result_wb;       // ALU result
@@ -113,7 +116,9 @@ module top(
         logic [2:0]  control_sig_mem_wb;        // {reg_write, wb_sel[1:0]}
         logic [31:0] pc_plus4_wb;               // PC+4 from MEM/WB
         logic [2:0]  control_sig_wb;            // was [1:0]
-    
+        logic [2:0] func3_wb;
+        logic [31:0] load_result;
+
     hazard_unit hu(
         .id_ex_MemRead,
         .id_ex_rd,
@@ -262,6 +267,39 @@ module top(
     assign Branch= control_sig_mem[2];
     
     always_comb begin
+        byte_en       = 4'b0000;
+        dm_write_data = RD2_mem;
+    
+        if (MemWrite) begin
+            case (func3_mem[1:0])    // 00=byte, 01=half, 10=word
+    
+                2'b00: begin // SB
+                    // Replicate the source byte into all four lanes.
+                    // byte_en asserts exactly the one lane matching the byte offset.
+                    dm_write_data = {4{RD2_mem[7:0]}};
+                    case (alu_result_mem[1:0])
+                        2'b00: byte_en = 4'b0001;
+                        2'b01: byte_en = 4'b0010;
+                        2'b10: byte_en = 4'b0100;
+                        2'b11: byte_en = 4'b1000;
+                    endcase
+                end
+    
+                2'b01: begin // SH - must be halfword-aligned; only addr[1] matters
+                    dm_write_data = {2{RD2_mem[15:0]}};
+                    byte_en = alu_result_mem[1] ? 4'b1100 : 4'b0011;
+                end
+    
+                default: begin // SW
+                    dm_write_data = RD2_mem;
+                    byte_en       = 4'b1111;
+                end
+    
+            endcase
+        end
+    end
+    
+    always_comb begin
         case (func3_mem)
             3'b000: branch_taken =  (alu_result_mem == 32'b0); // BEQ
             3'b001: branch_taken = ~(alu_result_mem == 32'b0); // BNE
@@ -274,17 +312,18 @@ module top(
     end
     assign PCSource = branch_taken & Branch;
     
-    data_memory dm(
+    data_memory dm (
         .clk,
         .rst,
-        .address(alu_result_mem[9:0]),
-        .write_data(RD2_mem),
-        .mem_write(MemWrite),
-        .mem_read(MemRead),
-        .read_data(Read_data_mem)
+        .byte_addr  (alu_result_mem[11:0]),
+        .write_data (dm_write_data),
+        .byte_en    (byte_en),
+        .mem_read   (MemRead),
+        .read_data  (Read_data_mem)
     );
     always_comb begin
         case (control_sig_mem[4:3])   // wb_sel field in EX/MEM
+            2'b01:   MEM_RD = Read_data_mem;   // LW: return loaded data
             2'b10:   MEM_RD = pc_plus4_mem;    // JAL / JALR link value
             default: MEM_RD = alu_result_mem;  // ALU result (R/I, LUI, AUIPC)
         endcase
@@ -293,27 +332,63 @@ module top(
     //MEM_WB_reg
     assign control_sig_mem_wb=control_sig_mem[5:3];
     
-    MEM_WB_Reg #(.MEM_WB_size(MEM_WB_size)) mem_wb_reg(
+    
+    
+    // Replace the old MEM_WB_Reg instantiation:
+    MEM_WB_Reg #(.MEM_WB_size(MEM_WB_size)) mem_wb_reg (
         .clk, .rst,
         .inp({control_sig_mem_wb, pc_plus4_mem,
-              Read_data_mem, alu_result_mem, write_reg_final_mem}),
-        .out({control_sig_wb, pc_plus4_wb,
-              Read_data_wb, alu_result_wb, write_reg_final_wb})
-    );
-               
+              Read_data_mem, alu_result_mem, func3_mem, write_reg_final_mem}),
+        .out({control_sig_wb,    pc_plus4_wb,
+              Read_data_wb,  alu_result_wb,  func3_wb,  write_reg_final_wb})
+    );    
     
     
     //WB stage
-    assign RegWrite= control_sig_wb[2];
+    
     always_comb begin
-        case (control_sig_wb[1:0])                 // wb_sel
-            2'b01:   write_reg_data = Read_data_wb;  // LW
-            2'b10:   write_reg_data = pc_plus4_wb;   // JAL / JALR
-            default: write_reg_data = alu_result_wb; // R/I-type, LUI, AUIPC
+        load_result = Read_data_wb; // default: LW, no transformation needed
+    
+        case (func3_wb)
+            3'b000: // LB - signed byte
+                case (alu_result_wb[1:0])
+                    2'b00: load_result = {{24{Read_data_wb[ 7]}}, Read_data_wb[ 7: 0]};
+                    2'b01: load_result = {{24{Read_data_wb[15]}}, Read_data_wb[15: 8]};
+                    2'b10: load_result = {{24{Read_data_wb[23]}}, Read_data_wb[23:16]};
+                    2'b11: load_result = {{24{Read_data_wb[31]}}, Read_data_wb[31:24]};
+                endcase
+    
+            3'b001: // LH - signed halfword (halfword-aligned; addr[1] selects lane)
+                load_result = alu_result_wb[1]
+                              ? {{16{Read_data_wb[31]}}, Read_data_wb[31:16]}
+                              : {{16{Read_data_wb[15]}}, Read_data_wb[15: 0]};
+    
+            3'b010: load_result = Read_data_wb; // LW - full word, no change
+    
+            3'b100: // LBU - unsigned byte
+                case (alu_result_wb[1:0])
+                    2'b00: load_result = {24'b0, Read_data_wb[ 7: 0]};
+                    2'b01: load_result = {24'b0, Read_data_wb[15: 8]};
+                    2'b10: load_result = {24'b0, Read_data_wb[23:16]};
+                    2'b11: load_result = {24'b0, Read_data_wb[31:24]};
+                endcase
+    
+            3'b101: // LHU - unsigned halfword
+                load_result = alu_result_wb[1]
+                              ? {16'b0, Read_data_wb[31:16]}
+                              : {16'b0, Read_data_wb[15: 0]};
+    
+            default: load_result = Read_data_wb;
         endcase
     end
-    assign WB_RD=write_reg_data;
-    assign write_reg= write_reg_final_wb;
-    
-    
+    assign RegWrite= control_sig_wb[2];
+    always_comb begin
+        case (control_sig_wb[1:0])   // wb_sel
+            2'b01:   write_reg_data = load_result;    // all load variants via wb_sel=01
+            2'b10:   write_reg_data = pc_plus4_wb;    // JAL / JALR
+            default: write_reg_data = alu_result_wb;  // R/I-type, LUI, AUIPC
+        endcase
+    end
+    assign WB_RD     = write_reg_data;
+    assign write_reg = write_reg_final_wb;
 endmodule
