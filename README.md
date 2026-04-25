@@ -306,20 +306,43 @@ The final value of `150` was confirmed in simulation via both the register file 
 
 ## Known Limitations
 
-The following instructions are **not yet implemented** and will execute as NOPs (all control signals zero)
-- Byte and halfword memory operations (`LB`, `LH`, `LBU`, `LHU`, `SB`, `SH`) — memory currently operates at word (32-bit) granularity only
+**Combinational data memory read prevents BRAM inference.**
+`data_memory.sv` produces `read_data` combinationally from `mem[word_addr]`. Xilinx BRAM
+primitives (RAMB18/RAMB36) require a registered (synchronous) read port to infer correctly;
+a combinational read infers distributed LUT RAM instead. Despite the README's previous claim,
+BRAM inference does **not** occur with the current implementation. Converting to a synchronous
+read requires adding a MEM2 pipeline stage, which increases the load-use stall penalty from
+1 cycle to 2 cycles.
 
-Branch resolution occurs in the **MEM stage**, resulting in a 3-cycle penalty on every taken branch. Moving resolution to the EX stage would reduce this to 1 cycle and is a planned improvement.
+**Branch resolution in the MEM stage incurs a 3-cycle penalty.**
+Every taken branch flushes the IF/ID, ID/EX, and EX/MEM pipeline registers. Moving resolution
+to the EX stage would reduce the penalty to 1 cycle and is a planned improvement.
 
 ---
 
 ## Design Decisions
 
 **Why resolve branches in MEM rather than EX?**
-Resolving in EX requires forwarding the branch comparator result and the branch target before the EX/MEM register is written, which adds a combinational path between the forwarding mux outputs and the PC. Resolving in MEM is simpler for a first implementation and trades hardware complexity for a predictable 3-cycle flush penalty.
+Resolving in EX requires the branch comparator to operate on forwarded values before the
+EX/MEM register latches, adding a combinational path from the forwarding mux outputs to
+the PC. Resolving in MEM keeps these paths fully registered at the cost of a fixed 3-cycle
+flush penalty on every taken branch.
 
-**Why use an 8-bit control word packed as a single bus?**
-Packing control signals into a single vector simplifies the pipeline register interfaces — each register stores and forwards one bus rather than a named set of individual wires. Bit-field assignments (`control_sig_ex[2:1]`, etc.) are explicitly documented in the top-level comments and verified against the control unit packing order.
+**Why use a packed control signal bus rather than individual wires?**
+A single vector simplifies pipeline register instantiation — each register stores and
+forwards one bus instead of a set of individually named signals. The trade-off is brittle
+magic bit-index slices (`control_sig_ex[6]`, etc.) throughout `top.sv` that are sensitive
+to any future reordering of the control word.
 
 **Why keep `func7` zeroed for most I-type instructions?**
-The RV32I encoding reuses the `func7` field as the upper 7 bits of the immediate for I-type instructions. Zeroing `func7` allows the same `ALU_control` decoder to handle both R-type and I-type without a separate decode path. The exception is `SRAI` (func3=101, bit[30]=1), which preserves `func7[5]` to distinguish arithmetic from logical right shift.
+Zeroing bits [31:25] before they reach `ALU_control` lets the same `{func7, func3}` decode
+table serve both R-type and I-type ALU operations without a separate path. `func7` is
+preserved only for SLLI, SRLI, and SRAI, where `func7[5]` distinguishes arithmetic from
+logical right shift.
+
+**Why perform sub-word load extraction in both the MEM and WB stages?**
+The MEM-stage copy (`mem_stage_load_result`) feeds the forwarding mux so that a forwarded
+load value has already had byte/halfword extraction applied. The WB-stage copy (`load_result`)
+is the authoritative value written to the register file. The load-use stall prevents the
+MEM-stage forwarding path from being exercised in practice, but it is structurally correct
+regardless.
