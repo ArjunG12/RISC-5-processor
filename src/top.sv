@@ -49,6 +49,7 @@ module top(
     
         // ─── ID Stage ────────────────────────────────────────────────────────
         logic [4:0]  rs1_id, rs2_id,write_reg_id;      // decoded source register addresses
+        logic [6:0]  if_id_opcode;
         logic [4:0]  if_id_rs1, if_id_rs2;// aliases fed to hazard unit
         logic [31:0] RD1_id, RD2_id;      // register file read data
         logic [31:0] sign_extend_out_id;  // sign-extended immediate
@@ -110,6 +111,9 @@ module top(
         logic [3:0]  byte_en;
         logic [31:0] dm_write_data;
         logic [31:0] mem_stage_load_result;
+        logic        load_addr_misaligned;
+        logic        store_addr_misaligned;
+        logic        ex_mem_regwrite_effective;
         // ─── MEM/WB Pipeline Register outputs ────────────────────────────────
         logic [31:0] Read_data_wb;        // memory read data
         logic [31:0] alu_result_wb;       // ALU result
@@ -123,6 +127,7 @@ module top(
     hazard_unit hu(
         .id_ex_MemRead,
         .id_ex_rd,
+        .if_id_opcode,
         .if_id_rs1,
         .if_id_rs2,
         // Stall outputs
@@ -136,7 +141,7 @@ module top(
         .id_ex_rs1,   // need to pipe rs1/rs2 through ID/EX too
         .id_ex_rs2,
         .ex_mem_rd(write_reg_final_mem),
-        .ex_mem_regwrite(control_sig_mem[5]),
+        .ex_mem_regwrite(ex_mem_regwrite_effective),
         .mem_wb_rd(write_reg_final_wb),
         .mem_wb_regwrite(control_sig_wb[2]),
         .forwardA(forwardA),
@@ -168,10 +173,11 @@ module top(
     //IF_ID_Reg
     IF_ID_Reg #(.IF_ID_size(IF_ID_size))  if_id_reg (.clk, .rst,.en(IF_ID_Write),.flush(if_id_flush_combined), .inp({pc_out,instr}), .out({pc_out_id,instr_id}));
      
-    //ID stage
-    assign id_ex_flush_combined = branch_flush | jump_taken;
-    assign rs1_id = instr_id[19:15];
-    assign rs2_id = instr_id[24:20];
+     //ID stage
+     assign id_ex_flush_combined = branch_flush | jump_taken;
+     assign if_id_opcode = instr_id[6:0];
+     assign rs1_id = instr_id[19:15];
+     assign rs2_id = instr_id[24:20];
     control_unit cu(
         .opcode(instr_id[6:0]),
         .control_sig(control_sig_id)
@@ -266,12 +272,23 @@ module top(
     assign MemWrite=control_sig_mem[0];
     assign MemRead= control_sig_mem[1];
     assign Branch= control_sig_mem[2];
+    assign load_addr_misaligned =
+        MemRead &&
+        (((func3_mem == 3'b001) || (func3_mem == 3'b101)) ? alu_result_mem[0] :
+         (func3_mem == 3'b010)                           ? |alu_result_mem[1:0] :
+                                                           1'b0);
+    assign store_addr_misaligned =
+        MemWrite &&
+        ((func3_mem == 3'b001) ? alu_result_mem[0] :
+         (func3_mem == 3'b010) ? |alu_result_mem[1:0] :
+                                 1'b0);
+    assign ex_mem_regwrite_effective = control_sig_mem[5] & ~(MemRead & load_addr_misaligned);
     
     always_comb begin
         byte_en       = 4'b0000;
         dm_write_data = RD2_mem;
     
-        if (MemWrite) begin
+        if (MemWrite && !store_addr_misaligned) begin
             case (func3_mem[1:0])    // 00=byte, 01=half, 10=word
     
                 2'b00: begin // SB
@@ -319,7 +336,7 @@ module top(
         .byte_addr  (alu_result_mem[11:0]),
         .write_data (dm_write_data),
         .byte_en    (byte_en),
-        .mem_read   (MemRead),
+        .mem_read   (MemRead && !load_addr_misaligned),
         .read_data  (Read_data_mem)
     );
     always_comb begin
@@ -368,7 +385,7 @@ module top(
     end
      
     //MEM_WB_reg
-    assign control_sig_mem_wb=control_sig_mem[5:3];
+    assign control_sig_mem_wb={ex_mem_regwrite_effective,control_sig_mem[4:3]};
     
     
     
